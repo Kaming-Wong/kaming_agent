@@ -163,37 +163,88 @@ class KnowledgeGraph:
 
     # ── 文档实体抽取(上传时用) ──
 
+    def analyze_and_suggest_nodes(self, doc_text: str) -> Dict[str, Any]:
+        """用 LLM 分析文档，识别已有概念和需要新建的概念/关系
+
+        Returns:
+            {
+                "existing_articles": ["法条名称", ...],
+                "new_concepts": [{"name": "概念名", "description": "定义"}, ...],
+                "new_relations": [{"source": "概念A", "relation": "RELATES_TO", "target": "概念B"}, ...]
+            }
+        """
+        # 获取当前图谱中已有的所有 Concept 名称
+        existing_nodes = self.neo4j.query("MATCH (c:Concept) RETURN c.name AS name")
+        existing_article_nodes = self.neo4j.query("MATCH (a:LawArticle) RETURN a.name AS name")
+
+        existing_concepts = [n.get("name", "") for n in existing_nodes if n.get("name")]
+        existing_articles = [n.get("name", "") for n in existing_article_nodes if n.get("name")]
+
+        # 构造 LLM prompt
+        concepts_str = ", ".join(existing_concepts) if existing_concepts else "（空）"
+        articles_str = ", ".join(existing_articles) if existing_articles else "（空）"
+
+        prompt = f"""你是一个法律知识图谱构建助手。分析以下文档文本，输出 JSON 结构：
+
+{{
+    "existing_articles": ["已在图谱中的法条名称，精确匹配"],
+    "new_concepts": [{{"name": "新概念名称", "description": "概念定义"}}],
+    "new_relations": [{{"source": "概念A", "relation": "RELATES_TO|BELONGS_TO|REFERENCES", "target": "概念B"}}]
+}}
+
+规则：
+- existing_articles: 只填图谱中已有的法条，精确匹配名称
+- new_concepts: 图谱中没有的法律概念，每个概念需要有准确的名称和描述
+- new_relations: 只填新概念之间的关系，不填已有的
+- 如果没有新的概念或关系，对应列表为空数组 []
+- 只识别法律相关概念，不识别普通词汇
+
+图谱中已有概念：{concepts_str}
+图谱中已有法条：{articles_str}
+
+文档文本：
+{doc_text[:3000]}
+
+输出 JSON："""
+
+        try:
+            result = _get_llm().invoke(prompt)
+            content = result.content.strip()
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+            import json
+            parsed = json.loads(content)
+            logger.info(f"LLM graph analysis: existing={len(parsed.get('existing_articles', []))}, "
+                        f"new_concepts={len(parsed.get('new_concepts', []))}, "
+                        f"new_relations={len(parsed.get('new_relations', []))}")
+            return parsed
+        except Exception as e:
+            logger.warning(f"Graph analysis failed: {e}")
+            return {"existing_articles": [], "new_concepts": [], "new_relations": []}
+
     def extract_articles_from_doc(self, doc_text: str) -> List[str]:
         """从文档文本中抽取可能引用的法条名称
 
         用于上传文档时自动关联到知识图谱中的法条节点。
         """
-        # 先用图谱中的法条名称做精确匹配
-        articles = self.neo4j.query(
-            "MATCH (a:LawArticle) RETURN a.name AS name"
-        )
+        # 调用新的分析方法
+        analysis = self.analyze_and_suggest_nodes(doc_text)
+        existing_articles = analysis.get("existing_articles", [])
+
+        # 精确匹配文档中出现的法条名称
+        articles = self.neo4j.query("MATCH (a:LawArticle) RETURN a.name AS name")
         matched = []
         for art in articles:
             name = art.get("name", "")
             if name and name in doc_text:
                 matched.append(name)
 
-        # 再用 LLM 补充抽取
-        if len(matched) < 3:
-            try:
-                prompt = f"""从以下文档文本中识别涉及的法律法规名称（如：劳动合同法、劳动法等）。
-只返回逗号分隔的名称列表，不要解释。
-
-文本开头：{doc_text[:500]}
-
-涉及的法律法规："""
-                result = _get_llm().invoke(prompt)
-                llm_matched = [m.strip() for m in result.content.strip().split(",") if m.strip()]
-                for m in llm_matched:
-                    if m and m not in matched:
-                        matched.append(m)
-            except Exception as e:
-                logger.warning(f"LLM article extraction failed: {e}")
+        # 合并 LLM 识别的已有法条
+        for name in existing_articles:
+            if name and name not in matched:
+                matched.append(name)
 
         return matched[:5]
 
