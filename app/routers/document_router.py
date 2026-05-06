@@ -207,20 +207,48 @@ class DocumentRouter(BaseRouter):
                     minio_url=task.minio_url,
                 )
 
-                # 5. 知识图谱关联（抽取文档中的法条，链接到 Neo4j）
+                # 5. 知识图谱关联（增强版：自动创建新概念节点）
                 kg = get_knowledge_graph()
                 if kg.available and chunks:
                     try:
-                        # 取文档前 2000 字做实体抽取
                         full_text = " ".join(c.page_content for c in chunks[:5])
-                        matched = kg.extract_articles_from_doc(full_text)
-                        if matched:
+
+                        # 调用增强后的分析方法（一次性返回已有法条+新概念+关系）
+                        analysis = kg.analyze_and_suggest_nodes(full_text)
+
+                        existing_articles = analysis.get("existing_articles", [])
+                        new_concepts = analysis.get("new_concepts", [])
+                        new_relations = analysis.get("new_relations", [])
+
+                        # 5a. 关联已有法条
+                        if existing_articles:
                             kg.neo4j.link_document_to_articles(
                                 doc_name=task.filename,
                                 session_id=session_id,
-                                matched_articles=matched,
+                                matched_articles=existing_articles,
                             )
-                            logger.info(f"Linked {task.filename} to {len(matched)} graph articles")
+                            logger.info(f"Linked to existing articles: {existing_articles}")
+
+                        # 5b. 创建新概念节点
+                        if new_concepts:
+                            created = kg.neo4j.create_concept_nodes(new_concepts)
+                            logger.info(f"Created {created} new concept nodes")
+
+                        # 5c. 创建概念间关系
+                        if new_relations:
+                            created = kg.neo4j.create_relations(new_relations)
+                            logger.info(f"Created {created} new relations")
+
+                        # 5d. 将新概念关联到文档
+                        if new_concepts:
+                            concept_names = [c.get("name") for c in new_concepts if c.get("name")]
+                            if concept_names:
+                                kg.neo4j.link_document_to_articles(
+                                    doc_name=task.filename,
+                                    session_id=session_id,
+                                    matched_articles=concept_names,
+                                )
+
                     except Exception as e:
                         logger.warning(f"Graph linking failed (non-fatal): {e}")
 
