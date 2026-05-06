@@ -268,6 +268,53 @@ class Neo4jClient:
                 )
             logger.info(f"Linked document '{doc_name}' to {len(matched_articles)} articles")
 
+    # ── 概念节点 ──
+
+    def concept_exists(self, name: str) -> bool:
+        """检查 Concept 节点是否存在"""
+        results = self.query(
+            "MATCH (c:Concept {name: $name}) RETURN c.name AS name",
+            {"name": name},
+        )
+        return len(results) > 0
+
+    def create_concept_nodes(self, concepts: List[Dict[str, str]]) -> int:
+        """批量创建 Concept 节点"""
+        driver = self._get_driver()
+        count = 0
+        with driver.session() as session:
+            for c in concepts:
+                session.run(
+                    "MERGE (c:Concept {name: $name}) SET c.description = $desc",
+                    name=c["name"], desc=c.get("description", ""),
+                )
+                count += 1
+        logger.info(f"Created {count} concept nodes")
+        return count
+
+    # ── 关系创建 ──
+
+    VALID_RELATIONS = {"REFERENCES", "BELONGS_TO", "RELATES_TO"}
+
+    def create_relations(self, relations: List[Dict[str, str]]) -> int:
+        """批量创建概念之间的关系"""
+        driver = self._get_driver()
+        count = 0
+        with driver.session() as session:
+            for rel in relations:
+                rel_type = rel.get("relation", "")
+                if rel_type not in self.VALID_RELATIONS:
+                    logger.warning(f"Invalid relation type '{rel_type}', skipping")
+                    continue
+                session.run(
+                    f"MATCH (a {{name: $source}}), (b {{name: $target}}) "
+                    f"MERGE (a)-[:{rel_type}]->(b)",
+                    source=rel["source"], target=rel["target"],
+                )
+                count += 1
+        logger.info(f"Created {count} relations")
+        return count
+
 
 # 全局单例
 _neo4j: Optional[Neo4jClient] = None
