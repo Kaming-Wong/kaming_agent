@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识库管理</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .nav {
+            background: #fff;
+            border-radius: 12px; padding: 12px 20px; margin-bottom: 20px;
+            display: flex; align-items: center; gap: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+        .nav a {
+            color: #1a73e8; text-decoration: none; font-size: 14px;
+            padding: 4px 12px; border-radius: 8px;
+        }
+        .nav a:hover { background: #e8f0fe; }
+        .nav a.active { background: #1a73e8; color: #fff; }
+        .nav .title { font-weight: 600; color: #333; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .card {
+            background: #fff; border-radius: 12px; padding: 24px;
+            margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+        .card h2 { font-size: 16px; margin-bottom: 16px; color: #333; }
+
+        /* ── 上传区 ── */
+        .upload-area {
+            border: 2px dashed #ddd; border-radius: 12px; padding: 40px;
+            text-align: center; cursor: pointer; transition: all 0.2s;
+        }
+        .upload-area:hover { border-color: #1a73e8; background: #f8faff; }
+        .upload-area.dragover { border-color: #1a73e8; background: #e8f0fe; }
+        .upload-area .icon { font-size: 36px; color: #999; }
+        .upload-area .text { color: #666; font-size: 14px; margin-top: 4px; }
+        .upload-area .hint { color: #999; font-size: 12px; margin-top: 4px; }
+        .upload-area input[type="file"] { display: none; }
+
+        /* ── 已选文件列表 ── */
+        .file-list { margin-top: 16px; }
+        .file-row {
+            display: flex; align-items: center; gap: 12px;
+            padding: 10px 14px; border-radius: 8px;
+            background: #f8f9fa; margin-bottom: 6px;
+            font-size: 13px;
+        }
+        .file-row .name { flex: 1; font-weight: 500; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .file-row .size { color: #999; white-space: nowrap; }
+        .file-row .rm-btn { cursor: pointer; color: #999; padding: 2px 6px; }
+        .file-row .rm-btn:hover { color: #e53935; }
+        .file-row .status-tag { font-size: 11px; padding: 2px 10px; border-radius: 10px; white-space: nowrap; }
+        .status-tag.pending { background: #f5f5f5; color: #999; }
+        .status-tag.uploading { background: #e3f2fd; color: #1565c0; }
+        .status-tag.processing { background: #fff3e0; color: #e65100; }
+        .status-tag.success { background: #e8f5e9; color: #2e7d32; }
+        .status-tag.error { background: #fce4ec; color: #c62828; }
+
+        /* ── 控制栏 ── */
+        .controls {
+            display: flex; gap: 12px; align-items: center;
+            margin-top: 16px; flex-wrap: wrap;
+        }
+        .controls input[type="text"] {
+            padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px;
+            font-size: 13px; flex: 1; max-width: 280px;
+        }
+        .controls input[type="text"]:focus { border-color: #1a73e8; outline: none; }
+        .btn {
+            padding: 8px 20px; border: none; border-radius: 8px;
+            font-size: 13px; cursor: pointer; font-weight: 500;
+        }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-primary:hover { background: #1557b0; }
+        .btn-primary:disabled { background: #93b8f0; cursor: not-allowed; }
+        .btn-danger { background: #fce4ec; color: #c62828; }
+        .btn-danger:hover { background: #f8d7da; }
+        .badge-count {
+            background: #e53935; color: #fff; font-size: 11px;
+            padding: 1px 8px; border-radius: 10px; margin-left: 6px;
+        }
+
+        /* ── 批量处理结果 ── */
+        .batch-result {
+            margin-top: 16px; border-radius: 10px; overflow: hidden;
+            border: 1px solid #e8e8e8; display: none;
+        }
+        .batch-result.show { display: block; }
+        .batch-result .summary {
+            padding: 12px 16px; font-size: 13px; font-weight: 500;
+            display: flex; justify-content: space-between;
+        }
+        .batch-result .summary .ok { color: #2e7d32; }
+        .batch-result .summary .fail { color: #c62828; }
+        .batch-result table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .batch-result td {
+            padding: 10px 16px; border-top: 1px solid #f0f0f0;
+        }
+        .batch-result td .error-msg { color: #c62828; font-size: 12px; }
+        .batch-result td .detail { color: #999; font-size: 12px; }
+
+        /* ── 统计 ── */
+        .stats-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;
+        }
+        .stat-item {
+            background: #f8f9fa; border-radius: 10px; padding: 16px; text-align: center;
+        }
+        .stat-item .num { font-size: 28px; font-weight: 700; color: #1a73e8; }
+        .stat-item .label { font-size: 12px; color: #999; margin-top: 4px; }
+
+        /* ── 文档列表 ── */
+        .doc-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .doc-table th {
+            text-align: left; padding: 10px 12px; border-bottom: 2px solid #e8e8e8;
+            color: #666; font-weight: 600; font-size: 12px;
+        }
+        .doc-table td { padding: 12px; border-bottom: 1px solid #f0f0f0; }
+        .doc-table tr:hover td { background: #f8faff; }
+        .badge {
+            display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px;
+        }
+        .badge.user { background: #fff3e0; color: #e65100; }
+        .empty-state { text-align: center; padding: 40px; color: #999; font-size: 14px; }
+        .toast {
+            position: fixed; bottom: 20px; right: 20px;
+            padding: 12px 20px; border-radius: 10px; font-size: 13px; color: #fff;
+            display: none; z-index: 1000;
+        }
+        .toast.show { display: block; animation: fadeIn 0.3s; }
+        .toast.success { background: #2e7d32; }
+        .toast.error { background: #c62828; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="nav">
+        <span class="title">📚 知识库</span>
+        <a href="/static/chat.html">💬 聊天</a>
+        <a href="/static/knowledge.html" class="active">📚 知识库</a>
+        <a href="/static/admin.html">👤 人工客服</a>
+    </div>
+
+    <!-- ── 上传区 ── -->
+    <div class="card">
+        <h2>📤 批量上传文档</h2>
+        <div class="upload-area" id="uploadArea">
+            <div class="icon">📄</div>
+            <div class="text">点击选择文件，或拖拽文件到此处</div>
+            <div class="hint">支持 txt、md、pdf、docx，最大 50MB/个，可批量</div>
+            <input type="file" id="fileInput" multiple accept=".txt,.md,.pdf,.docx,.doc">
+        </div>
+
+        <!-- 已选文件列表 -->
+        <div class="file-list" id="fileList"></div>
+
+        <!-- 控制栏 -->
+        <div class="controls">
+            <input type="text" id="sessionIdInput" placeholder="会话 ID（留空匿名）">
+            <span style="font-size:12px;color:#999" id="fileCount">未选择文件</span>
+            <button class="btn btn-primary" id="uploadBtn" onclick="startUpload()">⬆ 开始上传</button>
+        </div>
+
+        <!-- 批量处理结果 -->
+        <div class="batch-result" id="batchResult"></div>
+    </div>
+
+    <!-- ── 统计 ── -->
+    <div class="card">
+        <h2>📊 知识库统计</h2>
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-item"><div class="num">-</div><div class="label">法律条文</div></div>
+            <div class="stat-item"><div class="num">-</div><div class="label">上传文档</div></div>
+            <div class="stat-item"><div class="num">-</div><div class="label">文档总片段</div></div>
+            <div class="stat-item"><div class="num">800/100</div><div class="label">切分配置</div></div>
+        </div>
+    </div>
+
+    <!-- ── 文档列表 ── -->
+    <div class="card">
+        <h2>📄 已上传文档</h2>
+        <div id="docList"><div class="empty-state">加载中...</div></div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    // ================================================================
+    // 1. 文件选择 & 拖拽
+    // ================================================================
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    /** 当前选中的文件列表（File 对象数组） */
+    let selectedFiles = [];
+
+    uploadArea.addEventListener('click', () => fileInput.click());
+    uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) {
+            addFiles(e.dataTransfer.files);
+        }
+    });
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) {
+            addFiles(fileInput.files);
+            fileInput.value = '';
+        }
+    });
+
+    function addFiles(newFiles) {
+        for (const f of newFiles) {
+            // 去重（同名视为重复）
+            if (!selectedFiles.some(ex => ex.name === f.name && ex.size === f.size)) {
+                selectedFiles.push(f);
+            }
+        }
+        renderFileList();
+    }
+
+    function removeFile(index) {
+        selectedFiles.splice(index, 1);
+        renderFileList();
+    }
+
+    // ================================================================
+    // 2. 渲染文件列表
+    // ================================================================
+    function renderFileList() {
+        const list = document.getElementById('fileList');
+        const count = document.getElementById('fileCount');
+
+        if (selectedFiles.length === 0) {
+            list.innerHTML = '';
+            count.textContent = '未选择文件';
+            return;
+        }
+
+        count.textContent = `${selectedFiles.length} 个文件`;
+        list.innerHTML = selectedFiles.map((f, i) => {
+            const ext = f.name.split('.').pop();
+            const icon = ext === 'pdf' ? '📕' : ext === 'docx' || ext === 'doc' ? '📘' : '📄';
+            return `<div class="file-row">
+                <span>${icon}</span>
+                <span class="name">${escapeHtml(f.name)}</span>
+                <span class="size">${formatSize(f.size)}</span>
+                <span class="status-tag pending">待上传</span>
+                <span class="rm-btn" onclick="removeFile(${i})">✕</span>
+            </div>`;
+        }).join('');
+    }
+
+    // ================================================================
+    // 3. 批量上传
+    // ================================================================
+    async function startUpload() {
+        if (selectedFiles.length === 0) { showToast('请先选择文件', 'error'); return; }
+
+        const btn = document.getElementById('uploadBtn');
+        btn.disabled = true;
+        btn.textContent = '⏳ 上传中...';
+
+        // 将所有文件标记为 uploading
+        updateFileStatus('uploading', '上传中...');
+
+        const sessionId = document.getElementById('sessionIdInput').value.trim();
+        const formData = new FormData();
+        for (const f of selectedFiles) {
+            formData.append('files', f);
+        }
+        if (sessionId) formData.append('session_id', sessionId);
+
+        try {
+            const res = await fetch('/api/v1/documents/upload', {
+                method: 'POST',
+                body: formData,
+            });
+            const json = await res.json();
+
+            if (json.status === 200) {
+                showBatchResult(json.data);
+                showToast(`上传完成: ${json.data.success} 成功, ${json.data.error} 失败`, json.data.error > 0 ? 'error' : 'success');
+                selectedFiles = [];
+                renderFileList();
+                setTimeout(() => { loadStats(); loadDocs(); }, 500);
+            } else {
+                showToast(json.detail || '上传失败', 'error');
+                updateFileStatus('error', '请求失败');
+            }
+        } catch (err) {
+            showToast('网络错误: ' + err.message, 'error');
+            updateFileStatus('error', '网络错误');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '⬆ 开始上传';
+        }
+    }
+
+    function updateFileStatus(status, label) {
+        document.querySelectorAll('.file-row .status-tag').forEach(el => {
+            el.className = 'status-tag ' + status;
+            el.textContent = label;
+        });
+    }
+
+    // ================================================================
+    // 4. 展示批量结果
+    // ================================================================
+    function showBatchResult(data) {
+        const el = document.getElementById('batchResult');
+        const ok = data.success, fail = data.error;
+        const elapsed = data.elapsed_seconds || 0;
+        const files = data.files || [];
+
+        let rows = files.map(f => {
+            let statusHtml, detailHtml = '';
+            if (f.status === 'success') {
+                statusHtml = `<span class="status-tag success">✅ 成功</span>`;
+                detailHtml = `<span class="detail">${f.chunk_count} 片段 / ${f.inserted} 入库</span>`;
+            } else {
+                statusHtml = `<span class="status-tag error">❌ 失败</span>`;
+                detailHtml = `<span class="error-msg">${escapeHtml(f.error)}</span>`;
+            }
+            return `<tr>
+                <td>${escapeHtml(f.filename)}</td>
+                <td>${formatSize(f.size)}</td>
+                <td>${statusHtml}</td>
+                <td>${detailHtml}</td>
+            </tr>`;
+        }).join('');
+
+        el.className = 'batch-result show';
+        el.innerHTML = `
+            <div class="summary">
+                <span>📋 批量处理结果</span>
+                <span>
+                    <span class="ok">✅ ${ok}</span>
+                    ${fail > 0 ? `<span class="fail"> / ❌ ${fail}</span>` : ''}
+                    &nbsp;|&nbsp; ${elapsed}秒
+                </span>
+            </div>
+            <table><tbody>${rows}</tbody></table>
+        `;
+
+        setTimeout(() => { el.classList.remove('show'); }, 15000);
+    }
+
+    // ================================================================
+    // 5. 统计 & 文档列表
+    // ================================================================
+    async function loadStats() {
+        try {
+            const res = await fetch('/api/v1/knowledge/stats');
+            const json = await res.json();
+            if (json.status === 200) {
+                const d = json.data;
+                document.getElementById('statsGrid').innerHTML = `
+                    <div class="stat-item"><div class="num">${d.legal_docs_count}</div><div class="label">法律条文</div></div>
+                    <div class="stat-item"><div class="num">${d.user_docs_files}</div><div class="label">上传文档</div></div>
+                    <div class="stat-item"><div class="num">${d.user_docs_count}</div><div class="label">文档总片段</div></div>
+                    <div class="stat-item"><div class="num">800/100</div><div class="label">切分配置</div></div>
+                `;
+            }
+        } catch (e) { console.log('Stats load failed:', e); }
+    }
+
+    async function loadDocs() {
+        const list = document.getElementById('docList');
+        try {
+            const res = await fetch('/api/v1/documents');
+            const json = await res.json();
+            if (json.status === 200) {
+                const docs = json.data.documents || [];
+                if (docs.length === 0) {
+                    list.innerHTML = '<div class="empty-state">暂无上传文档</div>';
+                    return;
+                }
+                let html = `<table class="doc-table">
+                    <thead><tr><th>文件名</th><th>片段数</th><th>会话ID</th><th>操作</th></tr></thead><tbody>`;
+                for (const doc of docs) {
+                    html += `<tr>
+                        <td>${escapeHtml(doc.source)}</td>
+                        <td><span class="badge user">${doc.chunk_count} 片段</span></td>
+                        <td style="color:#999;font-size:12px">${doc.session_id || '-'}</td>
+                        <td><button class="btn btn-danger" onclick="deleteDoc('${escapeHtml(doc.source)}')">删除</button></td>
+                    </tr>`;
+                }
+                html += '</tbody></table>';
+                list.innerHTML = html;
+            } else {
+                list.innerHTML = '<div class="empty-state">加载失败</div>';
+            }
+        } catch (e) { list.innerHTML = '<div class="empty-state">网络错误</div>'; }
+    }
+
+    async function deleteDoc(source) {
+        if (!confirm(`确定删除 "${source}" 的所有片段吗？`)) return;
+        try {
+            const res = await fetch(`/api/v1/documents/${encodeURIComponent(source)}`, { method: 'DELETE' });
+            const json = await res.json();
+            if (json.status === 200) {
+                showToast('已删除', 'success');
+                loadDocs(); loadStats();
+            } else {
+                showToast('删除失败', 'error');
+            }
+        } catch (e) { showToast('网络错误', 'error'); }
+    }
+
+    // ================================================================
+    // 6. 工具函数
+    // ================================================================
+    function formatSize(bytes) {
+        if (!bytes) return '-';
+        if (bytes < 1024) return bytes + 'B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB';
+        return (bytes / 1024 / 1024).toFixed(1) + 'MB';
+    }
+
+    function escapeHtml(text) {
+        const d = document.createElement('div');
+        d.textContent = text;
+        return d.innerHTML;
+    }
+
+    function showToast(msg, type) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast show ' + type;
+        setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    // ── 初始化 ──
+    loadStats();
+    loadDocs();
+</script>
+</body>
+</html>

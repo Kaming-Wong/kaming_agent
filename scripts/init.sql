@@ -1,0 +1,2 @@
+-- 数据库由 docker-compose 的环境变量 MYSQL_DATABASE 创建
+-- 表结构由 FastAPI 启动时的 Base.metadata.create_all() 自动创建

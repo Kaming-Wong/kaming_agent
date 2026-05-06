@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from app.routers.chat_router import ChatRouter; from app.routers.document_router import DocumentRouter; print\\('All imports OK'\\)\")",
+      "Bash(conda run *)",
+      "Bash(git *)"
+    ]
+  }
+}

@@ -1,0 +1,89 @@
+version: "3.8"
+
+# ═══════════════════════════════════════════════════
+# 本地已有服务（不需要 docker，用你本机安装的）：
+#   - MySQL  → localhost:3306
+#   - Redis   → localhost:6379
+#   - Ollama  → localhost:11434
+#
+# 需要 docker 跑的服务：
+#   - Milvus  → localhost:19530
+#   - Neo4j   → localhost:7474(Web) / localhost:7687(Bolt)
+#   - MinIO   → localhost:9100(API) / localhost:9101(控制台)
+#
+# 使用方式：
+#   启动全部:  docker compose up -d
+#   只启某个:  docker compose up -d neo4j
+#   停止全部:  docker compose down
+# ═══════════════════════════════════════════════════
+
+services:
+
+  # ── 向量数据库 ──
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: kaming-etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+    volumes:
+      - etcd_data:/etcd
+    command: etcd --advertise-client-urls=http://0.0.0.0:2379
+                 --listen-client-urls=http://0.0.0.0:2379
+                 --data-dir=/etcd
+
+  milvus:
+    image: milvusdb/milvus:v2.4.0
+    container_name: kaming-milvus
+    restart: unless-stopped
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    depends_on:
+      - etcd
+      - minio
+    volumes:
+      - milvus_data:/var/lib/milvus
+    command: ["milvus", "run", "standalone"]
+
+  # ── 对象存储（Milvus 依赖 + 用户文档存储）──
+  minio:
+    image: minio/minio:latest
+    container_name: kaming-minio
+    restart: unless-stopped
+    ports:
+      - "9100:9000"    # API（对应 .env MINIO_ENDPOINT=localhost:9100）
+      - "9101:9001"    # 管理控制台
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
+  # ── 知识图谱 ──
+  neo4j:
+    image: neo4j:5-community
+    container_name: kaming-neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"   # Web 管理界面（浏览器访问 http://localhost:7474）
+      - "7687:7687"   # Bolt 驱动连接（对应 .env NEO4J_URI=bolt://localhost:7687）
+    environment:
+      NEO4J_AUTH: neo4j/kaming123456
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_dbms_security_auth__minimum__password__length: "4"
+    volumes:
+      - neo4j_data:/data
+
+volumes:
+  etcd_data:
+  milvus_data:
+  minio_data:
+  neo4j_data:
